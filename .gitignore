@@ -1,0 +1,14 @@
+# Secretos
+.env
+.env.*
+!.env.example
+
+# Datos reales del board y respaldos
+export/
+backups/
+
+# Python
+.venv/
+venv/
+__pycache__/
+*.pyc

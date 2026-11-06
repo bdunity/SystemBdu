@@ -1,0 +1,81 @@
+# Teable standalone. Tomado de la guia oficial ("Minimal Deployment"):
+# https://help.teable.ai/en/deploy/docker
+#
+# Diferencias con el original (detalle en README.md):
+#  - teable-db NO publica el puerto 42345: regla de la PoC, la BD queda solo en la red de Docker.
+#  - La app publica solo en 127.0.0.1.
+#  - `environment` explicito en lugar de `env_file`: el .env de la raiz tambien guarda
+#    MONDAY_API_TOKEN y otros secretos que este contenedor no debe recibir.
+#  - BACKEND_CACHE_PROVIDER=redis viene del ejemplo oficial del repo de Teable
+#    (dockers/examples/standalone/.env).
+name: monday-poc-teable
+
+services:
+  teable:
+    image: ghcr.io/teableio/teable:latest
+    restart: always
+    ports:
+      - "127.0.0.1:${TEABLE_PORT:?Falta TEABLE_PORT en .env}:3000"
+    volumes:
+      - teable-data:/app/.assets:rw
+    environment:
+      - NEXT_ENV_IMAGES_ALL_REMOTE=true
+      - SECRET_KEY=${TEABLE_SECRET_KEY:?Falta TEABLE_SECRET_KEY en .env}
+      - PUBLIC_ORIGIN=${TEABLE_PUBLIC_ORIGIN:?Falta TEABLE_PUBLIC_ORIGIN en .env}
+      - PRISMA_DATABASE_URL=postgresql://teable:${TEABLE_POSTGRES_PASSWORD:?Falta TEABLE_POSTGRES_PASSWORD en .env}@teable-db:5432/teable
+      - BACKEND_CACHE_PROVIDER=redis
+      - BACKEND_CACHE_REDIS_URI=redis://default:${TEABLE_REDIS_PASSWORD:?Falta TEABLE_REDIS_PASSWORD en .env}@teable-cache:6379/0
+    networks:
+      - teable
+    depends_on:
+      teable-db:
+        condition: service_healthy
+      teable-cache:
+        condition: service_healthy
+    healthcheck:
+      test: ['CMD', 'curl', '-f', 'http://localhost:3000/health']
+      start_period: 5s
+      interval: 5s
+      timeout: 3s
+      retries: 3
+
+  teable-db:
+    image: postgres:15.4
+    restart: always
+    volumes:
+      - teable-db:/var/lib/postgresql/data:rw
+    environment:
+      - POSTGRES_DB=teable
+      - POSTGRES_USER=teable
+      - POSTGRES_PASSWORD=${TEABLE_POSTGRES_PASSWORD:?Falta TEABLE_POSTGRES_PASSWORD en .env}
+    networks:
+      - teable
+    healthcheck:
+      test: ['CMD-SHELL', "sh -c 'pg_isready -U teable -d teable'"]
+      interval: 10s
+      timeout: 3s
+      retries: 3
+
+  teable-cache:
+    image: redis:7.2.4
+    restart: always
+    expose:
+      - '6379'
+    volumes:
+      - teable-cache:/data:rw
+    networks:
+      - teable
+    command: redis-server --appendonly yes --requirepass ${TEABLE_REDIS_PASSWORD:?Falta TEABLE_REDIS_PASSWORD en .env}
+    healthcheck:
+      test: ['CMD', 'redis-cli', '--raw', 'incr', 'ping']
+      interval: 10s
+      timeout: 3s
+      retries: 3
+
+networks:
+  teable: {}
+
+volumes:
+  teable-db: {}
+  teable-data: {}
+  teable-cache: {}

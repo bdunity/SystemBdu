@@ -1,0 +1,19 @@
+# Baserow all-in-one (incluye su propio PostgreSQL y Redis dentro del contenedor).
+# Base: https://baserow.io/docs/installation/install-with-docker-compose
+name: monday-poc-baserow
+
+services:
+  baserow:
+    image: baserow/baserow:2.4.1
+    restart: unless-stopped
+    environment:
+      BASEROW_PUBLIC_URL: ${BASEROW_PUBLIC_URL:?Falta BASEROW_PUBLIC_URL en .env}
+      # Vacio = Baserow bloquea webhooks a IPs privadas. Ver README.
+      BASEROW_WEBHOOKS_ALLOW_PRIVATE_ADDRESS: ${BASEROW_WEBHOOKS_ALLOW_PRIVATE_ADDRESS:-}
+    ports:
+      - "127.0.0.1:${BASEROW_PORT:?Falta BASEROW_PORT en .env}:80"
+    volumes:
+      - baserow_data:/baserow/data
+
+volumes:
+  baserow_data: {}

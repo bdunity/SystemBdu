@@ -1,0 +1,27 @@
+# Baserow en la Mac mini, publicado solo por Cloudflare Tunnel.
+# No publica ningun puerto: cloudflared llega a Baserow por la red interna de Docker.
+# En Cloudflare, el hostname publico apunta al servicio http://baserow:80
+name: baserow
+
+services:
+  baserow:
+    image: baserow/baserow:2.4.1  # misma version que el respaldo; actualizar despues de restaurar
+    restart: unless-stopped
+    environment:
+      BASEROW_PUBLIC_URL: ${BASEROW_PUBLIC_URL:?Falta BASEROW_PUBLIC_URL en .env}
+      # Vacio = Baserow bloquea webhooks a IPs privadas (incluida Tailscale).
+      BASEROW_WEBHOOKS_ALLOW_PRIVATE_ADDRESS: ${BASEROW_WEBHOOKS_ALLOW_PRIVATE_ADDRESS:-}
+    volumes:
+      - baserow_data:/baserow/data
+
+  cloudflared:
+    image: cloudflare/cloudflared:2026.10.7
+    restart: unless-stopped
+    command: tunnel --no-autoupdate run
+    environment:
+      TUNNEL_TOKEN: ${CLOUDFLARE_TUNNEL_TOKEN:?Falta CLOUDFLARE_TUNNEL_TOKEN en .env}
+    depends_on:
+      - baserow
+
+volumes:
+  baserow_data: {}

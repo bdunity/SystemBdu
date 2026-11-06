@@ -1,0 +1,3 @@
+# Los scripts de la Mac deben quedar con saltos de linea Unix y los de Windows con CRLF.
+*.sh text eol=lf
+*.cmd text eol=crlf
