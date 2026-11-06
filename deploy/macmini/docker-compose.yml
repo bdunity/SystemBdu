@@ -1,6 +1,6 @@
-# Baserow en la Mac mini, publicado solo por Cloudflare Tunnel.
-# No publica ningun puerto: cloudflared llega a Baserow por la red interna de Docker.
-# En Cloudflare, el hostname publico apunta al servicio http://baserow:80
+# Baserow en la Mac mini, publicado solo por ngrok con login de Microsoft.
+# No publica ningun puerto: el agente de ngrok llega a Baserow por la red interna de Docker.
+# Las reglas de acceso estan en ngrok-policy.yml.
 name: baserow
 
 services:
@@ -14,12 +14,20 @@ services:
     volumes:
       - baserow_data:/baserow/data
 
-  cloudflared:
-    image: cloudflare/cloudflared:2026.10.7
+  ngrok:
+    image: ngrok/ngrok:3.39.13-alpine
     restart: unless-stopped
-    command: tunnel --no-autoupdate run
+    command:
+      - http
+      - http://baserow:80
+      - --url
+      - ${BASEROW_PUBLIC_URL:?Falta BASEROW_PUBLIC_URL en .env}
+      - --traffic-policy-file
+      - /etc/ngrok/policy.yml
     environment:
-      TUNNEL_TOKEN: ${CLOUDFLARE_TUNNEL_TOKEN:?Falta CLOUDFLARE_TUNNEL_TOKEN en .env}
+      NGROK_AUTHTOKEN: ${NGROK_AUTHTOKEN:?Falta NGROK_AUTHTOKEN en .env}
+    volumes:
+      - ./ngrok-policy.yml:/etc/ngrok/policy.yml:ro
     depends_on:
       - baserow
 
