@@ -2,7 +2,7 @@
 
 ## Decisión (2026-11-06)
 
-**Se elige Baserow.** De momento se instalará en la Mac mini, publicada con Cloudflare Tunnel porque gente externa debe llenar el formulario. La guía está en [deploy/macmini/README.md](deploy/macmini/README.md).
+**Se elige Baserow.** De momento se instalará en la Mac mini, publicada con ngrok y login de Microsoft, porque gente externa debe llenar el formulario y el DNS se queda en HostGator (Cloudflare Tunnel gratuito exige mover el DNS). La guía está en [deploy/macmini/README.md](deploy/macmini/README.md).
 
 Lo que la PoC aporta a la decisión, según las mediciones de abajo:
 - **A favor de Baserow:**
@@ -11,7 +11,7 @@ Lo que la PoC aporta a la decisión, según las mediciones de abajo:
   - Menos peso en disco que Teable.
 - **En contra:**
   - El kanban requiere Premium (USD 10–12 por usuario al mes).
-  - Los archivos se sirven sin pedir sesión, lo que obliga a poner Cloudflare Access delante.
+  - Los archivos se sirven sin pedir sesión, lo que obliga a poner una capa de login delante (reglas de ngrok).
 - **Teable:** quedó descartado sobre todo porque, sin pagar Business (USD 20–36 por usuario al mes), no tiene webhooks ni automatizaciones.
 
 Sin cerrar: la opinión de usuarios tras 3–5 días, el número de licencias Premium necesarias y los flujos de n8n (tarea 4).

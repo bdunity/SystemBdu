@@ -1,0 +1,56 @@
+# Politica de trafico de ngrok para Baserow.
+# Docs: https://ngrok.com/docs/traffic-policy/
+#
+# Quien entra:
+#   1. Rutas del formulario publico: sin login (medidas con un navegador sin sesion).
+#   2. n8n: con el encabezado X-N8N-Key, cuyo valor vive en la boveda de ngrok
+#      (vault "baserow", secreto "n8n-key"), nunca en este archivo.
+#   3. Todos los demas: login con Microsoft y solo correos de la empresa.
+#
+# ANTES DE USAR: cambia '@tu-empresa.com' por el dominio de correo real (aparece una vez).
+# Para varios dominios: (... .endsWith('@a.com') || ... .endsWith('@b.com')).
+#
+# Importante: Baserow sirve los archivos (/media/...) sin pedir sesion. Esta politica
+# es lo unico que impide que alguien con un enlace descargue facturas.
+
+on_http_request:
+  # Login con Microsoft para todo lo que no sea formulario ni n8n.
+  - name: login-microsoft
+    expressions:
+      - >-
+        !(req.url.path.startsWith('/form/')
+          || req.url.path.startsWith('/_nuxt/')
+          || req.url.path.startsWith('/fonts/')
+          || req.url.path.startsWith('/_i18n/')
+          || req.url.path.startsWith('/api/database/views/form/'))
+        && !('x-n8n-key' in req.headers
+          && secrets.get('baserow', 'n8n-key') in req.headers['x-n8n-key'])
+    actions:
+      - type: oauth
+        config:
+          provider: microsoft
+
+  # Despues del login, solo correos de la empresa.
+  - name: solo-empresa
+    expressions:
+      - >-
+        !(req.url.path.startsWith('/form/')
+          || req.url.path.startsWith('/_nuxt/')
+          || req.url.path.startsWith('/fonts/')
+          || req.url.path.startsWith('/_i18n/')
+          || req.url.path.startsWith('/api/database/views/form/'))
+        && !('x-n8n-key' in req.headers
+          && secrets.get('baserow', 'n8n-key') in req.headers['x-n8n-key'])
+        && !actions.ngrok.oauth.identity.email.endsWith('@tu-empresa.com')
+    actions:
+      - type: deny
+        config:
+          status_code: 403
+
+  # El secreto de n8n no debe llegar a Baserow.
+  - name: quitar-secreto
+    actions:
+      - type: remove-headers
+        config:
+          headers:
+            - x-n8n-key
