@@ -22,35 +22,49 @@ En las pruebas, Baserow sirve los archivos (`/media/...`) **sin pedir sesión** 
 | `backup.sh` | Respaldo con retención de los últimos `BACKUP_KEEP` |
 | `restore.sh` | Restauración; también acepta respaldos hechos con `scripts\backup.cmd` en Windows |
 
-`backup.sh` y `restore.sh` se probaron en Linux con el respaldo real de la PoC. Restaurar tomó 64 s más unos 50 s hasta `healthy`; respaldar, 114 s; los conteos de filas y usuarios coincidieron. **No se han probado en macOS**: están escritos para su bash 3.2 y sus herramientas BSD. **La política de ngrok tampoco se ha probado**: requiere una cuenta; la sección 5 dice cómo comprobarla.
+`backup.sh` y `restore.sh` se probaron en Linux con el respaldo real de la PoC. Restaurar tomó 64 s más unos 50 s hasta `healthy`; respaldar, 114 s; los conteos de filas y usuarios coincidieron. **No se han probado en macOS**: están escritos para su bash 3.2 y sus herramientas BSD. **La política de ngrok tampoco se ha probado**: la fase 1 sirve justamente para comprobarla (sección 6).
+
+## Se hace en dos fases
+
+| Fase | Dirección | Costo | Para qué |
+|---|---|---|---|
+| **1. Prueba** | `https://exclusion-refrain-bring.ngrok-free.dev` (dominio gratuito de la cuenta) | USD 0 | Instalar todo en la Mac y comprobar las reglas de acceso **antes de pagar** |
+| **2. Definitiva** | `https://system.bdunity.com` | USD 20 al mes | Uso real |
+
+Pasar de la fase 1 a la 2 es cambiar `BASEROW_PUBLIC_URL` en `.env` y reiniciar (`docker compose up -d`). Los datos no se tocan.
+
+En la fase 1, ngrok muestra a los navegadores una página de aviso antes de entrar. Es normal en el plan gratuito y desaparece en la fase 2.
 
 ## 1. Cuenta de ngrok
 
-1. Crea la cuenta en ngrok y contrata **Pay-as-you-go**: USD 20 al mes con USD 20 de consumo incluido. Es el plan que permite dominios propios.
-2. **Dominio:** en *Domains > New Domain*, agrega `baserow.tu-dominio.com`. ngrok te da un valor **CNAME**.
-3. **Authtoken:** cópialo de *Getting Started > Your Authtoken*; va en `.env`.
-4. **Secreto de n8n**, desde una terminal con el CLI de ngrok autenticado:
+1. **Authtoken:** cópialo de *Getting Started > Your Authtoken*; va en `.env`.
+2. **Secreto de n8n:** en *Resources > Vaults & Secrets*, crea el vault `baserow` y dentro el secret `n8n-key`, con una cadena larga aleatoria (`openssl rand -hex 32` en la Mac). Los nombres deben ser exactos. Guarda el mismo valor en la credencial de n8n, nunca en archivos.
+3. **Solo en la fase 2:** contrata **Pay-as-you-go** (USD 20 al mes con USD 20 de consumo incluido). Luego, en *Domains > New Domain > Bring your own domain*, agrega `system.bdunity.com`. ngrok te da un valor **CNAME**.
+
+## 2. HostGator (solo fase 2)
+
+`bdunity.com` usa el CDN de Cloudflare incluido en el hosting de HostGator: todo registro nuevo queda detrás de su proxy, y así ngrok no puede emitir el certificado. Por eso son tres pasos:
+
+1. En el **cPanel**, en el editor de zona, crea:
+
+   | Tipo | Nombre | Valor |
+   |---|---|---|
+   | CNAME | `system` | El valor de ngrok del paso 1.3 |
+
+2. **Escribe al chat de soporte de HostGator** y pide que **desactiven el proxy de Cloudflare solo para el registro `system.bdunity.com`**. Solo soporte puede hacerlo; confirmaron que es posible sin afectar el resto del dominio.
+3. Comprueba que ya no pasa por Cloudflare. En CMD o Terminal:
 
    ```bash
-   ngrok api vaults create --name "baserow"
-   ngrok api secrets create --name "n8n-key" --value "<una cadena larga aleatoria>" --vault-id "<id del vault anterior>"
+   nslookup system.bdunity.com 1.1.1.1
    ```
 
-   Guarda ese valor en la credencial de n8n, no en archivos. Para generarlo puedes usar `openssl rand -hex 32` en la Mac.
+   Debe mostrar el nombre de ngrok y **no** las IPs `104.21.52.108` / `172.67.198.48`. Cuando sea así, ngrok emite el certificado solo, lo que puede tardar de minutos a unas horas.
 
-## 2. HostGator
-
-En el panel de DNS del dominio, agrega **un solo registro**:
-
-| Tipo | Nombre | Valor |
-|---|---|---|
-| CNAME | `baserow` | El que te dio ngrok en el paso 1.2 |
-
-No se toca nada más: el correo y la web siguen igual. ngrok emite el certificado HTTPS solo cuando el CNAME ya resuelve, lo que puede tardar de minutos a unas horas.
+No se toca nada más: el correo de Microsoft 365 y la web siguen igual.
 
 ## 3. Ajustar la política
 
-En `ngrok-policy.yml`, cambia `@tu-empresa.com` por el dominio de correo real. Aparece una sola vez, en la regla `solo-empresa`.
+En `ngrok-policy.yml`, cambia `@tu-empresa.com` por el dominio de correo real, probablemente `@bdunity.com`. Aparece una sola vez, en la regla `solo-empresa`. Si también entran correos de otro dominio, como `@pldunity.com`, agrega los dos (el archivo explica cómo).
 
 ## 4. Preparar la Mac mini
 
@@ -91,7 +105,7 @@ docker compose ps
 docker compose logs ngrok
 ```
 
-En `.env` llena `BASEROW_PUBLIC_URL` (con `https://`) y `NGROK_AUTHTOKEN`.
+En `.env` llena `NGROK_AUTHTOKEN` y `BASEROW_PUBLIC_URL`: en la fase 1, `https://exclusion-refrain-bring.ngrok-free.dev`; en la fase 2, `https://system.bdunity.com`.
 
 En los logs de ngrok, si la política tiene un error (por ejemplo, si ngrok no acepta `secrets.get` dentro de una condición), el agente lo dice al arrancar y **no publica nada**. En ese caso, usa la alternativa de n8n por IP de la sección 7.
 
@@ -101,7 +115,7 @@ Usa una ventana de incógnito:
 
 | Prueba | Resultado esperado |
 |---|---|
-| `https://baserow.<tu-dominio>` | Login de **Microsoft**, no de Baserow |
+| `https://system.bdunity.com` | Login de **Microsoft**, no de Baserow |
 | Login con un correo de fuera de la empresa | Error 403 |
 | URL pública del formulario | Carga sin pedir login |
 | Enviar el formulario sin archivo | Error de campo obligatorio |
@@ -111,8 +125,8 @@ Usa una ventana de incógnito:
 Prueba de n8n desde cualquier terminal. Sin el secreto debe pedir login; con él, debe responder `200`:
 
 ```bash
-curl -s -o /dev/null -w "%{http_code}\n" https://baserow.<tu-dominio>/api/_health/
-curl -s -o /dev/null -w "%{http_code}\n" -H "X-N8N-Key: <secreto>" https://baserow.<tu-dominio>/api/_health/
+curl -s -o /dev/null -w "%{http_code}\n" https://system.bdunity.com/api/_health/
+curl -s -o /dev/null -w "%{http_code}\n" -H "X-N8N-Key: <secreto>" https://system.bdunity.com/api/_health/
 ```
 
 Si el formulario no carga o no envía, revisa en las herramientas del navegador (pestaña *Network*) qué ruta recibe la redirección a Microsoft y agrégala a las excepciones **solo si es del formulario**.
