@@ -4,7 +4,7 @@ Instalación de Baserow en la "Mac mini de Bots", publicada en internet solo por
 
 ```
 Equipo (login Microsoft) ─┐
-n8n (encabezado secreto) ─┼─► ngrok (reglas de ngrok-policy.yml) ─► agente ngrok ─► baserow
+n8n (pendiente, por IP)  ─┼─► ngrok (reglas de ngrok-policy.yml) ─► agente ngrok ─► baserow
 Externos (solo formulario)┘                                          (en la Mac, sin puertos abiertos)
 ```
 
@@ -17,7 +17,7 @@ En las pruebas, Baserow sirve los archivos (`/media/...`) **sin pedir sesión** 
 | Archivo | Para qué |
 |---|---|
 | `docker-compose.yml` | Baserow 2.4.1 y el agente de ngrok 3.39.13; ningún puerto publicado |
-| `ngrok-policy.yml` | Quién entra: formulario libre, n8n con secreto, el resto con login de Microsoft |
+| `ngrok-policy.yml` | Quién entra: formulario libre, el resto con login de Microsoft |
 | `.env.example` | Variables; copiar a `.env` |
 | `backup.sh` | Respaldo con retención de los últimos `BACKUP_KEEP` |
 | `restore.sh` | Restauración; también acepta respaldos hechos con `scripts\backup.cmd` en Windows |
@@ -38,8 +38,7 @@ En la fase 1, ngrok muestra a los navegadores una página de aviso antes de entr
 ## 1. Cuenta de ngrok
 
 1. **Authtoken:** cópialo de *Getting Started > Your Authtoken*; va en `.env`.
-2. **Secreto de n8n:** en *Resources > Vaults & Secrets*, crea el vault `baserow` y dentro el secret `n8n-key`, con una cadena larga aleatoria (`openssl rand -hex 32` en la Mac). Los nombres deben ser exactos. Guarda el mismo valor en la credencial de n8n, nunca en archivos.
-3. **Solo en la fase 2:** contrata **Pay-as-you-go** (USD 20 al mes con USD 20 de consumo incluido). Luego, en *Domains > New Domain > Bring your own domain*, agrega `system.bdunity.com`. ngrok te da un valor **CNAME**.
+2. **Solo en la fase 2:** contrata **Pay-as-you-go** (USD 20 al mes con USD 20 de consumo incluido). Luego, en *Domains > New Domain > Bring your own domain*, agrega `system.bdunity.com`. ngrok te da un valor **CNAME**.
 
 ## 2. HostGator (solo fase 2)
 
@@ -49,7 +48,7 @@ En la fase 1, ngrok muestra a los navegadores una página de aviso antes de entr
 
    | Tipo | Nombre | Valor |
    |---|---|---|
-   | CNAME | `system` | El valor de ngrok del paso 1.3 |
+   | CNAME | `system` | El valor de ngrok del paso 1.2 |
 
 2. **Escribe al chat de soporte de HostGator** y pide que **desactiven el proxy de Cloudflare solo para el registro `system.bdunity.com`**. Solo soporte puede hacerlo; confirmaron que es posible sin afectar el resto del dominio.
 3. Comprueba que ya no pasa por Cloudflare. En CMD o Terminal:
@@ -107,7 +106,7 @@ docker compose logs ngrok
 
 En `.env` llena `NGROK_AUTHTOKEN` y `BASEROW_PUBLIC_URL`: en la fase 1, `https://exclusion-refrain-bring.ngrok-free.dev`; en la fase 2, `https://system.bdunity.com`.
 
-En los logs de ngrok, si la política tiene un error (por ejemplo, si ngrok no acepta `secrets.get` dentro de una condición), el agente lo dice al arrancar y **no publica nada**. En ese caso, usa la alternativa de n8n por IP de la sección 7.
+En los logs de ngrok, si la política tiene un error el agente lo dice al arrancar y **no publica nada**. Ojo: una condición que falla **mientras corre** no detiene al agente; esa regla simplemente no se aplica. Por eso la sección 6 incluye pruebas que deben repetirse después de cada cambio a la política.
 
 ## 6. Comprobar antes de avisar a nadie
 
@@ -122,20 +121,20 @@ Usa una ventana de incógnito:
 | Enviar el formulario con archivo | Se guarda; revisa el registro dentro de Baserow |
 | Abrir la URL de un archivo (`/media/...`) | Pide login de Microsoft |
 
-Prueba de n8n desde cualquier terminal. Sin el secreto debe pedir login; con él, debe responder `200`:
+Prueba desde cualquier terminal que un encabezado inventado **no** se salte el login (debe responder `302`):
 
 ```bash
-curl -s -o /dev/null -w "%{http_code}\n" https://system.bdunity.com/api/_health/
-curl -s -o /dev/null -w "%{http_code}\n" -H "X-N8N-Key: <secreto>" https://system.bdunity.com/api/_health/
+curl -s -o /dev/null -w "%{http_code}
+" -H "X-N8N-Key: inventado" https://system.bdunity.com/api/_health/
 ```
 
 Si el formulario no carga o no envía, revisa en las herramientas del navegador (pestaña *Network*) qué ruta recibe la redirección a Microsoft y agrégala a las excepciones **solo si es del formulario**.
 
 ## 7. n8n
 
-- **Peticiones de n8n a Baserow:** n8n no puede hacer login de Microsoft, así que usa el encabezado `X-N8N-Key`. El nodo nativo de Baserow no permite encabezados propios, por lo que hay que usar **HTTP Request**, con el token de Baserow más ese encabezado.
+- **Peticiones de n8n a Baserow: pendiente.** n8n no puede hacer login de Microsoft. Se agregará a la política una excepción por la IP pública del servidor de n8n (`conn.client_ip == '<IP>'`), y se probará antes de usarla con datos reales. Mientras tanto, n8n no puede llegar a Baserow. Una versión anterior usaba un encabezado secreto con `secrets.get()`; **fallaba abierto** y se retiró (ver el comentario en `ngrok-policy.yml`).
+- **Nodo nativo de Baserow en n8n:** no permite encabezados propios; con ngrok delante hay que usar **HTTP Request**.
 - **Webhooks de Baserow a n8n:** van de salida y no pasan por ngrok. Solo necesitan que n8n tenga una URL alcanzable desde la Mac.
-- **Alternativa por IP:** si el secreto no funciona en la política, cambia en las dos reglas la condición del encabezado por `conn.client_ip == '<IP pública del servidor de n8n>'`. Es menos flexible, pero no depende de secretos.
 
 ## 8. Al terminar
 
@@ -174,6 +173,5 @@ docker compose pull && docker compose up -d
 
 - [Acción oauth](https://ngrok.com/docs/traffic-policy/actions/oauth)
 - [Variables de la petición](https://ngrok.com/docs/traffic-policy/variables/req)
-- [Secretos](https://ngrok.com/docs/traffic-policy/secrets)
 - [Agente en Docker](https://ngrok.com/docs/using-ngrok-with/docker)
 - [Dominios propios](https://ngrok.com/docs/gateway/domains/custom-domains)
