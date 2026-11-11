@@ -3,18 +3,22 @@
 #
 # Quien entra:
 #   1. Rutas del formulario publico: sin login (medidas con un navegador sin sesion).
-#   2. n8n: con el encabezado X-N8N-Key, cuyo valor vive en la boveda de ngrok
-#      (vault "baserow", secreto "n8n-key"), nunca en este archivo.
-#   3. Todos los demas: login con Microsoft y solo correos de la empresa.
+#   2. Todos los demas: login con Microsoft y solo correos de la empresa.
 #
 # ANTES DE USAR: cambia '@tu-empresa.com' por el dominio de correo real (aparece una vez).
 # Para varios dominios: (... .endsWith('@a.com') || ... .endsWith('@b.com')).
 #
 # Importante: Baserow sirve los archivos (/media/...) sin pedir sesion. Esta politica
 # es lo unico que impide que alguien con un enlace descargue facturas.
+#
+# LECCION (2026-11-11): si una condicion falla al evaluarse, ngrok NO aplica la regla
+# (falla abierto). Una version anterior usaba secrets.get() dentro de la condicion para
+# dejar pasar a n8n; con un encabezado de cualquier valor, la condicion fallaba y se
+# saltaba el login. No pongas en estas condiciones funciones que puedan fallar.
+# Para n8n se agregara una excepcion por IP (conn.client_ip), probada antes de usarla.
 
 on_http_request:
-  # Login con Microsoft para todo lo que no sea formulario ni n8n.
+  # Login con Microsoft para todo lo que no sea el formulario publico.
   - name: login-microsoft
     expressions:
       - >-
@@ -23,8 +27,6 @@ on_http_request:
           || req.url.path.startsWith('/fonts/')
           || req.url.path.startsWith('/_i18n/')
           || req.url.path.startsWith('/api/database/views/form/'))
-        && !('x-n8n-key' in req.headers
-          && secrets.get('baserow', 'n8n-key') in req.headers['x-n8n-key'])
     actions:
       - type: oauth
         config:
@@ -39,18 +41,8 @@ on_http_request:
           || req.url.path.startsWith('/fonts/')
           || req.url.path.startsWith('/_i18n/')
           || req.url.path.startsWith('/api/database/views/form/'))
-        && !('x-n8n-key' in req.headers
-          && secrets.get('baserow', 'n8n-key') in req.headers['x-n8n-key'])
         && !actions.ngrok.oauth.identity.email.endsWith('@tu-empresa.com')
     actions:
       - type: deny
         config:
           status_code: 403
-
-  # El secreto de n8n no debe llegar a Baserow.
-  - name: quitar-secreto
-    actions:
-      - type: remove-headers
-        config:
-          headers:
-            - x-n8n-key
