@@ -52,6 +52,11 @@ ITEM_FIELDS = f"""
   column_values {{
     id type text value
     ... on BoardRelationValue {{ display_value linked_item_ids }}
+    ... on MirrorValue {{ display_value }}
+    ... on FormulaValue {{ display_value }}
+    ... on PeopleValue {{ persons_and_teams {{ id kind }} }}
+    ... on TimelineValue {{ from to }}
+    ... on TimeTrackingValue {{ duration running }}
   }}
   assets {{ {ASSET_FIELDS} }}
   updates(limit: {UPDATES_PAGE_SIZE}) {{ {UPDATE_FIELDS} }}
@@ -85,6 +90,8 @@ MORE_UPDATES_QUERY = f"""
 query ($ids: [ID!], $limit: Int!, $page: Int!) {{
   items(ids: $ids) {{ updates(limit: $limit, page: $page) {{ {UPDATE_FIELDS} }} }}
 }}"""
+USERS_QUERY = """
+query ($page: Int!) { users(limit: 200, page: $page) { id name email } }"""
 REFRESH_ASSET_QUERY = """
 query ($ids: [ID!]!) { assets(ids: $ids) { id public_url } }"""
 
@@ -455,7 +462,16 @@ def export_board(args):
     board = boards[0]
     sub_ids = subitem_board_ids(board)
     sub_boards = client.execute(BOARD_QUERY, {"ids": sub_ids})["boards"] if sub_ids else []
-    write_json(board_dir / "board.json", {"board": board, "subitem_boards": sub_boards})
+    # Usuarios de la cuenta: permiten guardar las columnas de personas como correo.
+    users = []
+    page = 1
+    while True:
+        batch = client.execute(USERS_QUERY, {"page": page})["users"] or []
+        users.extend(batch)
+        if len(batch) < 200:
+            break
+        page += 1
+    write_json(board_dir / "board.json", {"board": board, "subitem_boards": sub_boards, "users": users})
     print(f"Board {board_id}: {board.get('items_count')} items segun Monday", flush=True)
 
     downloader = Downloader(client, board_dir)
