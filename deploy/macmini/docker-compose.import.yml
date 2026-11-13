@@ -1,0 +1,8 @@
+# SOLO durante una importacion desde otra computadora por Tailscale.
+# Publica Baserow en la IP de Tailscale de la Mac (no en la red local ni en internet).
+# Uso:    docker compose -f docker-compose.yml -f docker-compose.import.yml up -d
+# Quitar: docker compose up -d        (vuelve a no publicar ningun puerto)
+services:
+  baserow:
+    ports:
+      - "${TAILSCALE_IP:?Falta TAILSCALE_IP (tailscale ip -4)}:8081:80"

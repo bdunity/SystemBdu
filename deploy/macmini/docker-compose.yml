@@ -7,6 +7,9 @@ services:
   baserow:
     image: baserow/baserow:2.4.1  # misma version que el respaldo; actualizar despues de restaurar
     restart: unless-stopped
+    # Baserow procesa las subidas en /dev/shm; con los 64 MB por defecto de Docker,
+    # archivos de ~40 MB ya fallan con "No space left on device". Probado: 400 MB pasan con 1 GB.
+    shm_size: "1gb"
     environment:
       BASEROW_PUBLIC_URL: ${BASEROW_PUBLIC_URL:?Falta BASEROW_PUBLIC_URL en .env}
       # Vacio = Baserow bloquea webhooks a IPs privadas (incluida Tailscale).

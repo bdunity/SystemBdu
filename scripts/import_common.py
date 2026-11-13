@@ -114,7 +114,9 @@ class HttpClient:
                     headers.update(self.headers)
                     refreshed = True
                     continue
-                if error.code not in (408, 429, 500, 502, 503, 504) or attempt == retries:
+                # 409 de Baserow por tabla bloqueada es temporal: se reintenta.
+                locked = error.code == 409 and "FAILED_TO_LOCK" in detail
+                if (error.code not in (408, 429, 500, 502, 503, 504) and not locked) or attempt == retries:
                     raise ApiError(error.code, detail) from None
             except OSError as error:
                 if attempt == retries:
