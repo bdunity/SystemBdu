@@ -14,6 +14,7 @@ Se puede volver a correr: no duplica filas (usa monday_id). La consola solo mues
 Codigo de salida: 0 sin diferencias, 2 con diferencias, 1 error fatal.
 """
 import argparse
+import threading
 import json
 import time
 from collections import Counter
@@ -23,6 +24,8 @@ from pathlib import Path
 
 from import_baserow import BATCH, COLORS, Baserow
 from import_common import (
+    HttpClient,
+    base_name,
     FILES,
     MONDAY_ID,
     FatalError,
@@ -35,7 +38,7 @@ from import_common import (
     validate_rows,
 )
 
-AREA_NAMES = {"COMERCIAL": "Comercial", "IT": "IT"}
+AREA_NAMES = {"COMERCIAL": "Comercial", "IT": "IT", "FINANZAS": "Finanzas"}
 # Tipos que no se copian: el nombre va aparte, los subelementos van a su tabla, el ID ya esta
 # en monday_id, y botones/integraciones/progreso no tienen un valor propio en la API.
 SKIP_TYPES = {"name", "subtasks", "item_id", "button", "integration", "progress"}
@@ -43,6 +46,7 @@ RESERVED_NAMES = {"id", "order"}
 LINK = "link"
 MULTI = "multiple_select"
 PLAN_FILE = Path("export/migracion_it_comercial.json")
+BIG_UPLOAD = threading.Lock()
 
 
 def parse(cv):
@@ -423,19 +427,51 @@ class Target:
         self.b.connect(False)
         name = AREA_NAMES[self.area]
         http = self.b.http
-        ws = next((w for w in http.request("GET", "/api/workspaces/") if w["name"] == name), None)
+        ws = next((w for w in http.request("GET", "/api/workspaces/") if base_name(w["name"]) == name), None)
         ws = ws or http.request("POST", "/api/workspaces/", {"name": name})
         apps = http.request("GET", f"/api/applications/workspace/{ws['id']}/")
-        db = next((a for a in apps if a["type"] == "database" and a["name"] == name), None)
+        db = next((a for a in apps if a["type"] == "database" and base_name(a["name"]) == name), None)
         db = db or http.request("POST", f"/api/applications/workspace/{ws['id']}/", {"type": "database", "name": name})
         self.database_id = db["id"]
+        self.workspace_id = ws["id"]
+        self._uploaded = {}
+        self.uploader = None
+
+    def open_uploader(self):
+        """Token de base de datos para subir archivos: no caduca como la sesion (unos 10 min),
+        y los archivos grandes por Tailscale tardan mas que eso. Se borra en close_uploader()."""
+        http = self.b.http
+        for token in http.request("GET", "/api/database/tokens/"):
+            if token["name"] == "migracion-temporal":
+                http.request("DELETE", f"/api/database/tokens/{token['id']}/")
+        self.token = http.request("POST", "/api/database/tokens/", {"name": "migracion-temporal", "workspace": self.workspace_id})
+        self.uploader = HttpClient(http.base_url)
+        self.uploader.headers = {k: v for k, v in http.headers.items() if k != "Authorization"}
+        self.uploader.headers["Authorization"] = f"Token {self.token['key']}"
+
+    def close_uploader(self):
+        if self.uploader:
+            self.b.http.request("DELETE", f"/api/database/tokens/{self.token['id']}/")
+            self.uploader = None
+
+    def upload(self, ref, folder):
+        if ref.sha256 not in self._uploaded:
+            # Baserow procesa cada subida en /dev/shm (1 GB): varios archivos grandes a la vez
+            # lo llenan y fallan. Los de mas de 50 MB se suben de uno en uno.
+            if ref.size > 50_000_000:
+                with BIG_UPLOAD:
+                    data = self.uploader.upload("/api/user-files/upload-file/", Path(folder) / ref.path, ref.name)
+            else:
+                data = self.uploader.upload("/api/user-files/upload-file/", Path(folder) / ref.path, ref.name)
+            self._uploaded[ref.sha256] = data["name"]
+        return {"name": self._uploaded[ref.sha256], "visible_name": ref.name}
 
     def tables(self, models):
         ids = {}
-        existing = {t["name"]: t["id"] for t in self.b.http.request("GET", f"/api/database/tables/database/{self.database_id}/")}
+        existing = {base_name(t["name"]): t["id"] for t in self.b.http.request("GET", f"/api/database/tables/database/{self.database_id}/")}
         for t in models:
-            if t.name in existing:
-                ids[t.name] = existing[t.name]
+            if base_name(t.name) in existing:
+                ids[t.name] = existing[base_name(t.name)]
             else:
                 header = [t.primary] + ([MONDAY_ID] if t.primary != MONDAY_ID else [])
                 ids[t.name] = self.b.http.request("POST", f"/api/database/tables/database/{self.database_id}/", {"name": t.name[:255], "data": [header], "first_row_header": True})["id"]
@@ -459,7 +495,7 @@ def insert_rows(target, table_id, model, export_dir_of_row, workers):
         body = {}
         for spec in plain:
             if spec.kind == FILES:
-                body[spec.name] = [b.upload(ref, export_dir_of_row) for ref in row.files.get(spec.name) or []]
+                body[spec.name] = [target.upload(ref, export_dir_of_row) for ref in row.files.get(spec.name) or []]
             elif spec.kind == MULTI:
                 v = row.values.get(spec.name)
                 body[spec.name] = v.split("|") if v else []
@@ -531,9 +567,13 @@ def main():
         target.ensure_fields(table_ids[m.name], [s for s in m.fields if s.kind != LINK], table_ids)
 
     if not args.validate_only:
-        for m in models:
-            had, new = insert_rows(target, table_ids[m.name], m, m.export_dir, args.workers)
-            print(f"  {m.name[:60]}: {had} ya existian, {new} creadas", flush=True)
+        target.open_uploader()
+        try:
+            for m in models:
+                had, new = insert_rows(target, table_ids[m.name], m, m.export_dir, args.workers)
+                print(f"  {m.name[:60]}: {had} ya existian, {new} creadas", flush=True)
+        finally:
+            target.close_uploader()
 
     # Vinculos: se crean al final, cuando todas las filas existen.
     id_maps = {}
