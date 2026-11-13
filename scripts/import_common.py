@@ -50,6 +50,14 @@ def read_env(*names):
     return result
 
 
+def base_name(name):
+    """Nombre sin emoji ni simbolos al inicio: '💰 Finanzas' -> 'Finanzas'."""
+    i = 0
+    while i < len(name) and not name[i].isalnum():
+        i += 1
+    return name[i:]
+
+
 def long_path(path):
     resolved = os.path.abspath(path)
     if os.name == "nt" and not resolved.startswith("\\\\?\\"):
