@@ -3,10 +3,11 @@
 #
 # Quien entra:
 #   1. Rutas del formulario publico: sin login (medidas con un navegador sin sesion).
-#   2. Todos los demas: login con Microsoft y solo correos de la empresa.
+#   2. n8n: solo desde la IP fija del VPS (108.174.154.240), comprobada como su IP de salida.
+#   3. Todos los demas: login con Microsoft y solo correos @bdunity.com.
 #
-# ANTES DE USAR: cambia '@tu-empresa.com' por el dominio de correo real (aparece una vez).
-# Para varios dominios: (... .endsWith('@a.com') || ... .endsWith('@b.com')).
+# Para varios dominios de correo: (... .endsWith('@a.com') || ... .endsWith('@b.com')).
+# Si cambia la IP del VPS, hay que cambiarla aqui en las dos reglas.
 #
 # Importante: Baserow sirve los archivos (/media/...) sin pedir sesion. Esta politica
 # es lo unico que impide que alguien con un enlace descargue facturas.
@@ -15,10 +16,11 @@
 # (falla abierto). Una version anterior usaba secrets.get() dentro de la condicion para
 # dejar pasar a n8n; con un encabezado de cualquier valor, la condicion fallaba y se
 # saltaba el login. No pongas en estas condiciones funciones que puedan fallar.
-# Para n8n se agregara una excepcion por IP (conn.client_ip), probada antes de usarla.
+# La excepcion de n8n usa conn.client_ip: la IP de origen de la conexion, que siempre existe
+# y no se puede falsificar con encabezados como X-Forwarded-For. Probada desde fuera.
 
 on_http_request:
-  # Login con Microsoft para todo lo que no sea el formulario publico.
+  # Login con Microsoft para todo lo que no sea el formulario publico ni n8n.
   - name: login-microsoft
     expressions:
       - >-
@@ -27,6 +29,7 @@ on_http_request:
           || req.url.path.startsWith('/fonts/')
           || req.url.path.startsWith('/_i18n/')
           || req.url.path.startsWith('/api/database/views/form/'))
+        && conn.client_ip != '108.174.154.240'
     actions:
       - type: oauth
         config:
@@ -41,7 +44,8 @@ on_http_request:
           || req.url.path.startsWith('/fonts/')
           || req.url.path.startsWith('/_i18n/')
           || req.url.path.startsWith('/api/database/views/form/'))
-        && !actions.ngrok.oauth.identity.email.endsWith('@tu-empresa.com')
+        && conn.client_ip != '108.174.154.240'
+        && !actions.ngrok.oauth.identity.email.endsWith('@bdunity.com')
     actions:
       - type: deny
         config:
